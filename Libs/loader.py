@@ -60,8 +60,8 @@ class InfluenceDataSet(Dataset):
         self.graphs += identity
         self.graphs[self.graphs != 0] = 1.0
 
-        if model == "gat" or model == "pscn":
-            # GAT/PSCN expect binary adjacency matrices
+        if model in ["gat", "sigkan_norm", "sigkan_att"] :
+            # GAT expect binary adjacency matrices
             self.graphs = self.graphs.astype(np.uint8)
         elif model == "gcn":
             # Normalize graphs for GCN: D^{-1/2}AD^{-1/2}
@@ -120,6 +120,10 @@ class InfluenceDataSet(Dataset):
     def get_embedding(self):
         """Return the pre-trained node embeddings."""
         return self.embedding
+    
+    def get_num_nodes(self):
+        """Return the number of nodes in the dataset."""
+        return self.graphs.shape[1]
 
     def get_vertex_features(self):
         """Return the vertex features."""
@@ -143,87 +147,3 @@ class InfluenceDataSet(Dataset):
     def __getitem__(self, idx):
         """Return a single data point from the dataset."""
         return self.graphs[idx], self.influence_features[idx], self.labels[idx], self.vertices[idx]
-
-
-class PatchySanDataSet(InfluenceDataSet):
-    """
-    A subclass of InfluenceDataSet designed for Patchy-SAN models, which requires
-    generating receptive fields based on BFS traversal.
-
-    Args:
-        file_dir (str): Directory containing the dataset files.
-        embedding_dim (int): Dimensionality of node embeddings.
-        seed (int): Random seed for shuffling data.
-        shuffle (bool): Whether to shuffle the dataset.
-        model (str): The model type (should be 'pscn' for this dataset).
-        sequence_size (int): Size of the BFS sequence to generate.
-        stride (int): Stride for the sliding window (unused in this case).
-        neighbor_size (int): Size of the neighborhood to consider for each node.
-    """
-
-    def __init__(self, file_dir, embedding_dim, seed, shuffle, model, sequence_size=8, stride=1, neighbor_size=8):
-        assert model == "pscn", "PatchySanDataSet only supports 'pscn' model."
-        super().__init__(file_dir, embedding_dim, seed, shuffle, model)
-
-        logger.info("Generating receptive fields...")
-        self.receptive_fields = self._generate_receptive_fields(
-            sequence_size, neighbor_size)
-        logger.info("Receptive fields generated!")
-
-    def _generate_receptive_fields(self, sequence_size, neighbor_size):
-        """Generate receptive fields for each graph using BFS traversal."""
-        n_vertices = self.graphs.shape[1]
-        receptive_fields = []
-
-        for i in range(self.graphs.shape[0]):
-            adj = self.graphs[i]
-            edges = list(zip(*np.where(adj)))
-            g = igraph.Graph(edges=edges, directed=False)
-            g.simplify()
-            assert g.vcount() == n_vertices, "Vertex count mismatch."
-
-            sequence = self.get_bfs_order(
-                g, n_vertices - 1, sequence_size, self.influence_features[i])
-            neighborhoods = np.full(
-                (sequence_size, neighbor_size), -1, dtype=np.int32)
-
-            for j, v in enumerate(sequence):
-                if v < 0:
-                    break
-                shortest = list(itertools.islice(
-                    g.bfsiter(int(v), mode='ALL'), neighbor_size))
-                for k, vtx in enumerate(shortest):
-                    neighborhoods[j][k] = vtx.index
-
-            neighborhoods = neighborhoods.reshape(
-                sequence_size * neighbor_size)
-            receptive_fields.append(neighborhoods)
-
-        return np.array(receptive_fields, dtype=np.int32)
-
-    def get_bfs_order(self, g, v, size, key):
-        """
-        Generate a BFS order for the graph and sort each layer by the given key.
-
-        Args:
-            g (igraph.Graph): The graph to perform BFS on.
-            v (int): The starting vertex for BFS.
-            size (int): The maximum size of the BFS sequence.
-            key (array-like): Features used to sort nodes in each BFS layer.
-
-        Returns:
-            list: A BFS-ordered list of nodes, limited by 'size'.
-        """
-        order, indices, _ = g.bfs(v, mode="ALL")
-        for j, start in enumerate(indices[:-1]):
-            if start >= size:
-                break
-            end = indices[j + 1]
-            order[start:end] = sorted(
-                order[start:end], key=lambda x: key[x][0], reverse=True)
-
-        return order[:size]
-
-    def __getitem__(self, idx):
-        """Return a single data point from the dataset, including receptive fields."""
-        return self.receptive_fields[idx], self.influence_features[idx], self.labels[idx], self.vertices[idx]

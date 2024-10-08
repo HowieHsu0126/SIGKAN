@@ -8,13 +8,14 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-from data_loader import ChunkSampler, InfluenceDataSet, PatchySanDataSet
-from gcn import BatchGCN
+from loader import ChunkSampler, InfluenceDataSet
+from layers import AttentionMechanism
+from model import BatchGAT, BatchGCN, SIGKAN_Att, SIGKAN_Norm
 from sklearn.metrics import (precision_recall_curve,
                              precision_recall_fscore_support, roc_auc_score)
 from tensorboard_logger import tensorboard_logger
 from torch.utils.data import DataLoader
-
+from loss import compute_total_loss, psi
 # Setup logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
@@ -26,11 +27,14 @@ def parse_args():
     Returns:
         argparse.Namespace: Parsed arguments from the command line.
     """
-    parser = argparse.ArgumentParser(description="Train a GCN model.")
+    parser = argparse.ArgumentParser(description="Let's train a model.")
     parser.add_argument('--tensorboard-log', type=str, default='',
                         help="Name of this run for TensorBoard logging.")
     parser.add_argument('--model', type=str, default='gcn',
-                        choices=['gcn', 'pscn'], help="Model type to use.")
+                        choices=['gcn', 'pscn', 'sigkan_norm', 'sigkan_att'],
+                        help="Model type to use ('gcn', 'pscn', 'sigkan_norm', 'sigkan_att').")
+    parser.add_argument('--delta', type=float, default=1e-5,
+                        help='Bounded confidence interval if using SIGKAN.')
     parser.add_argument('--no-cuda', action='store_true',
                         help='Disable CUDA training.')
     parser.add_argument('--seed', type=int, default=42, help='Random seed.')
@@ -65,10 +69,11 @@ def parse_args():
                         action='store_true', help="Balance class weights.")
     parser.add_argument('--use-vertex-feature', action='store_true',
                         help="Use vertex structural features.")
-    parser.add_argument('--sequence-size', type=int,
-                        default=16, help="Sequence size for PSCN.")
-    parser.add_argument('--neighbor-size', type=int,
-                        default=5, help="Neighborhood size for PSCN.")
+    # ODE and adversarial loss weights
+    parser.add_argument('--alpha', type=float, default=1.0, help='Weight for ODE loss.')
+    parser.add_argument('--beta', type=float, default=1.0, help='Weight for adversarial loss.')
+    parser.add_argument('--epsilon', type=float, default=0.01, help='Perturbation budget for adversarial training.')
+
     return parser.parse_args()
 
 
@@ -116,17 +121,7 @@ def get_data_loaders(args, dataset):
 
 
 def create_model(args, dataset, n_classes, feature_dim):
-    """Instantiate the appropriate GCN model based on provided arguments.
-
-    Args:
-        args (argparse.Namespace): Parsed command-line arguments.
-        dataset (Dataset): The dataset object for retrieving embeddings and features.
-        n_classes (int): Number of output classes for classification.
-        feature_dim (int): Input feature dimension for the model.
-
-    Returns:
-        torch.nn.Module: The instantiated GCN model.
-    """
+    """Instantiate the appropriate model based on provided arguments."""
     n_units = [feature_dim] + \
         [int(x) for x in args.hidden_units.split(",")] + [n_classes]
 
@@ -139,35 +134,64 @@ def create_model(args, dataset, n_classes, feature_dim):
             dropout=args.dropout,
             instance_normalization=args.instance_normalization
         )
+
+    elif args.model == "sigkan_norm":
+        return SIGKAN_Norm(
+            n_units=n_units,
+            delta=args.delta,  # Bounded confidence interval
+            dropout=args.dropout
+        )
+
+    elif args.model == "sigkan_att":
+        return SIGKAN_Att(
+            n_units=n_units,
+            delta=args.delta,
+            dropout=args.dropout,
+            attention=AttentionMechanism(feature_dim),
+        )
+
     else:
-        raise NotImplementedError("Model type not supported.")
+        raise NotImplementedError(f"Model type '{args.model}' not supported.")
 
 
-def evaluate(epoch, loader, thr=None, return_best_thr=False, log_desc='valid_'):
-    """Evaluate the model and optionally return the best threshold.
+def train(epoch, train_loader, valid_loader, test_loader, model, alpha, beta, delta, epsilon, psi):
+    """Train the model for one epoch."""
+    model.train()
+    total_loss, total_samples = 0, 0
 
-    Args:
-        epoch (int): Current epoch number.
-        loader (DataLoader): DataLoader instance for evaluation data.
-        thr (float, optional): Threshold for classification. Defaults to None.
-        return_best_thr (bool, optional): Whether to return the best threshold. Defaults to False.
-        log_desc (str, optional): Description prefix for logging. Defaults to 'valid_'.
+    for batch in train_loader:
+        adj, features, labels, vertices = [x.cuda() if args.cuda else x for x in batch]
+        
+        # Compute the total loss
+        loss = compute_total_loss(model, features, vertices, adj, labels, alpha, beta, delta, epsilon, psi)
+        
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-    Returns:
-        float, optional: Best classification threshold if return_best_thr is True, otherwise None.
-    """
+        total_loss += adj.size(0) * loss.item()
+        total_samples += adj.size(0)
+
+    logger.info(f"Epoch {epoch}, Train Loss: {total_loss / total_samples:.4f}")
+    tensorboard_logger.log_value('train_loss', total_loss / total_samples, epoch)
+
+
+
+
+def evaluate(epoch, loader, model, thr=None, return_best_thr=False, log_desc='valid_'):
+    """Evaluate the model."""
     model.eval()
     total_loss, total_samples = 0, 0
     y_true, y_pred, y_score = [], [], []
 
     for batch in loader:
-        graph, features, labels, vertices = [
+        adj, features, labels, vertices = [
             x.cuda() if args.cuda else x for x in batch]
-        output = model(features, vertices, graph)[:, -1, :]
+        output = model(features, vertices, adj)[:, -1, :]
 
         loss_batch = F.nll_loss(output, labels, class_weight)
-        total_loss += graph.size(0) * loss_batch.item()
-        total_samples += graph.size(0)
+        total_loss += adj.size(0) * loss_batch.item()
+        total_samples += adj.size(0)
 
         y_true.extend(labels.cpu().tolist())
         y_pred.extend(output.max(1)[1].cpu().tolist())
@@ -179,8 +203,8 @@ def evaluate(epoch, loader, thr=None, return_best_thr=False, log_desc='valid_'):
     prec, rec, f1, _ = precision_recall_fscore_support(
         y_true, y_pred, average="binary")
     auc = roc_auc_score(y_true, y_score)
-    logger.info("%sloss: %.4f AUC: %.4f Prec: %.4f Rec: %.4f F1: %.4f",
-                log_desc, total_loss / total_samples, auc, prec, rec, f1)
+    logger.info(
+        f"{log_desc}loss: {total_loss / total_samples:.4f} AUC: {auc:.4f} Prec: {prec:.4f} Rec: {rec:.4f} F1: {f1:.4f}")
 
     tensorboard_logger.log_value(
         f'{log_desc}loss', total_loss / total_samples, epoch)
@@ -193,101 +217,54 @@ def evaluate(epoch, loader, thr=None, return_best_thr=False, log_desc='valid_'):
         precs, recs, thrs = precision_recall_curve(y_true, y_score)
         f1s = 2 * precs * recs / (precs + recs)
         best_thr = thrs[np.nanargmax(f1s)]
-        logger.info("Best threshold = %.4f, F1 = %.4f", best_thr, np.max(f1s))
+        logger.info(f"Best threshold = {best_thr:.4f}, F1 = {np.max(f1s):.4f}")
         return best_thr
     return None
 
 
-def train(epoch, train_loader, valid_loader, test_loader):
-    """Train the model for one epoch.
-
-    Args:
-        epoch (int): Current epoch number.
-        train_loader (DataLoader): DataLoader instance for training data.
-        valid_loader (DataLoader): DataLoader instance for validation data.
-        test_loader (DataLoader): DataLoader instance for test data.
-    """
-    model.train()
-    total_loss, total_samples = 0, 0
-
-    for batch in train_loader:
-        graph, features, labels, vertices = [
-            x.cuda() if args.cuda else x for x in batch]
-
-        optimizer.zero_grad()
-        output = model(features, vertices, graph)[:, -1, :]
-        loss = F.nll_loss(output, labels, class_weight)
-        loss.backward()
-        optimizer.step()
-
-        total_loss += graph.size(0) * loss.item()
-        total_samples += graph.size(0)
-
-    logger.info("Epoch %d, Train Loss: %.4f",
-                epoch, total_loss / total_samples)
-    tensorboard_logger.log_value(
-        'train_loss', total_loss / total_samples, epoch)
-
-    # Checkpoint model and evaluate at regular intervals
-    if (epoch + 1) % args.check_point == 0:
-        logger.info("Epoch %d, checkpoint reached!", epoch)
-        best_thr = evaluate(epoch, valid_loader,
-                            return_best_thr=True, log_desc='valid_')
-        evaluate(epoch, test_loader, thr=best_thr, log_desc='test_')
-
-
 if __name__ == "__main__":
-    # Parse command-line arguments
+    # Parse arguments
     args = parse_args()
-
-    # Set CUDA availability flag
     args.cuda = not args.no_cuda and torch.cuda.is_available()
 
-    # Initialize the environment (seeds, logging)
+    # Set up environment
     setup_environment(args)
 
-    # Load dataset based on selected model type
-    dataset = PatchySanDataSet(
-        args.file_dir, args.dim, args.seed, args.shuffle, args.model
-    ) if args.model == "pscn" else InfluenceDataSet(
-        args.file_dir, args.dim, args.seed, args.shuffle, args.model
-    )
+    # Load dataset
+    dataset = InfluenceDataSet(args.file_dir, args.dim, args.seed, args.shuffle, args.model)
 
     # Determine the number of output classes and input feature dimensions
     n_classes = 2  # Assuming binary classification
     feature_dim = dataset.get_feature_dimension()
 
     # Set class weights for balanced class weighting if needed
-    class_weight = dataset.get_class_weight(
-    ) if args.class_weight_balanced else torch.ones(n_classes)
+    class_weight = dataset.get_class_weight() if args.class_weight_balanced else torch.ones(n_classes)
     class_weight = class_weight.cuda() if args.cuda else class_weight
 
     # Create data loaders for training, validation, and testing
     train_loader, valid_loader, test_loader = get_data_loaders(args, dataset)
 
-    # Initialize model and move to CUDA if available
+    # Create the appropriate model based on the args
     model = create_model(args, dataset, n_classes, feature_dim)
     if args.cuda:
         model.cuda()
 
-    # Set optimizer (Adagrad) with specified learning rate and weight decay
-    optimizer = optim.Adagrad(
-        model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    # Set optimizer
+    optimizer = optim.Adagrad(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     # Training loop
     logger.info("Starting training process...")
     start_time = time.time()
 
     for epoch in range(args.epochs):
-        train(epoch, train_loader, valid_loader, test_loader)
+        train(epoch, train_loader, valid_loader, test_loader, model, args.alpha, args.beta, args.delta, args.epsilon, psi)
 
-    logger.info("Training completed in %.4fs", time.time() - start_time)
+    logger.info(f"Training completed in {time.time() - start_time:.4f}s")
 
-    # After training, evaluate model and retrieve the best threshold
-    logger.info("Retrieving the best threshold for validation set...")
-    best_thr = evaluate(args.epochs, valid_loader,
-                        return_best_thr=True, log_desc='valid_')
+    # Retrieve the best threshold
+    best_thr = evaluate(args.epochs, valid_loader, model, return_best_thr=True, log_desc='valid_')
 
-    # Perform final testing using the best threshold
+    # Final evaluation on the test set
     logger.info("Testing the model with the best threshold...")
-    evaluate(args.epochs, test_loader, thr=best_thr, log_desc='test_')
+    evaluate(args.epochs, test_loader, model, thr=best_thr, log_desc='test_')
+
