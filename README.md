@@ -1,7 +1,6 @@
 # SIGKAN: Sociologically-Informed Graph Kolmogorov-Arnold Networks for Social Influence Prediction
 
-## Overview
-SIGKAN (Sociologically-Informed Graph Kolmogorov-Arnold Networks) is a deep learning framework for predicting social influence on graphs, leveraging sociological theories and advanced neural network techniques. The key idea is to integrate the Bounded Confidence Model (BCM) for influence propagation and Kolmogorov-Arnold Networks (KANs) for feature updates, enhancing model interpretability and expressiveness. SIGKAN is designed to address the limitations of traditional opinion dynamics models and current deep learning methods on graphs by combining theoretical social influence models with state-of-the-art graph-based learning.
+> **TL;DR:** The paper discusses a novel approach to predicting social influence through Sociologically-Informed Graph Kolmogorov-Arnold Networks (SIGKAN), integrating sociological principles into graph-based models.
 
 ### Abstract
 Social influence plays a crucial role in both offline interactions and virtual networks. Accurately predicting individual user influence is vital for understanding social dynamics. Traditional opinion dynamics models, though insightful, require extensive manual calibration and are computationally complex. Recent graph deep learning methods are powerful yet often ignore established social interaction mechanisms. SIGKAN aims to overcome these limitations by introducing a novel approach, combining a sociologically-informed message-passing mechanism based on the BCM and leveraging KANs to update node features. The method also employs an Ordinary Differential Equation (ODE) formulation to constrain the learning process, ensuring adherence to theoretical models. Extensive experiments on Open Academic Graph (OAG), Twitter, Weibo, and Digg datasets demonstrate that SIGKAN outperforms existing baseline models.
@@ -66,6 +65,16 @@ SIGKAN introduces several novel components:
 
 The datasets are preprocessed using `loader.py`, which handles feature extraction, normalization, and graph construction.
 
+### Download Links
+Please download the preprocessed datasets from [onedrive](https://1drv.ms/f/s!An4lcD8a80_7gzdLaanNUThTWwmy), [dropbox](https://www.dropbox.com/s/y1iokawi33mn87y/DeepInf.tar.gz?dl=0), [google drive](https://drive.google.com/open?id=1qBIVdwkKcnOGZnXHcIizzW4_bUekRgC6), or [baidu pan](https://pan.baidu.com/s/1YX3cHYaK_7UuX4qEnqgo9w) (with password 242g).
+
+If you are interested in un-preprocessed data, please download them from the following links:
+
+- [Digg dataset](https://www.isi.edu/~lerman/downloads/digg2009.html)
+- [Twitter dataset](https://snap.stanford.edu/data/higgs-twitter.html)
+- [OAG dataset](https://www.openacademic.ai/oag/)
+- [Weibo dataset](https://www.aminer.cn/influencelocality)
+
 ## Evaluation
 SIGKAN has been evaluated using several key metrics to measure prediction accuracy and generalization. These include:
 - **Precision**, **Recall**, **F1-score** for influence prediction.
@@ -75,23 +84,19 @@ SIGKAN has been evaluated using several key metrics to measure prediction accura
 SIGKAN significantly outperforms existing baseline methods on the OAG, Twitter, Weibo, and Digg datasets in predicting social influence. The results show a marked improvement in both the accuracy of individual influence prediction and the model's ability to generalize across different social network datasets.
 
 ## Acknowledgments
-This work is based on sociological theories of social influence and advanced graph neural network methodologies. We thank the authors and researchers whose works in BCM, KANs, and GNNs have inspired this model.
+This work is based on sociological theories of social influence and advanced graph neural network methodologies. We acknowledge the works that inspired this model, including **DeepInf** ([GitHub Repository](https://github.com/xptree/DeepInf)) and **Efficient KAN** ([GitHub Repository](https://github.com/Blealtan/efficient-kan)).
 
 ## License
 This project is licensed under the MIT License.
-
-## Contact
-For questions, issues, or contributions, please contact [Your Name] at [Your Email].
 
 ## Citation
 If you use SIGKAN in your research, please cite our paper:
 
 ```
-@article{sigkan2024,
+@article{sigkan2025,
   title={SIGKAN: Sociologically-Informed Graph Kolmogorov-Arnold Networks for Social Influence Prediction},
   author={Anonymous},
-  journal={ACM TheWebConf 2025},
+  journal={TheWebConf},
   year={2025}
 }
 ```
-
