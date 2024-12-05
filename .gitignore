@@ -117,3 +117,5 @@ ckpt/
 *.pth
 *.ckpt
 results/
+*.ipynb
+*.pdf
