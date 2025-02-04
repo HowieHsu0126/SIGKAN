@@ -8,11 +8,11 @@ set -x
 
 
 
-CUDA_VISIBLE_DEVICES=0 python train.py --model sigkan_norm \
+CUDA_VISIBLE_DEVICES=2 python train.py --model gcn \
                 --file-dir "/data/hwxu/Dataset/NPU/InflunceLocality/digg/" \
-                --epochs 5 \
-                --lr 1e-3 \
-                --weight-decay 5e-4 \
+                --epochs 200 \
+                --lr 1e-2 \
+                --weight-decay 5e-3 \
                 --dropout 0.5 \
                 --hidden-units "64,32" \
                 --batch 2048 \

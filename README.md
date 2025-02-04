@@ -66,9 +66,8 @@ SIGKAN introduces several novel components:
 The datasets are preprocessed using `loader.py`, which handles feature extraction, normalization, and graph construction.
 
 ### Download Links
-Download the preprocessed datasets from [OneDrive](https://1drv.ms/f/s!An4lcD8a80_7gzdLaanNUThTWwmy), [Dropbox](https://www.dropbox.com/s/y1iokawi33mn87y/DeepInf.tar.gz?dl=0), [Google Drive](https://drive.google.com/open?id=1qBIVdwkKcnOGZnXHcIizzW4_bUekRgC6), or [Baidu Pan](https://pan.baidu.com/s/1YX3cHYaK_7UuX4qEnqgo9w) (password: 242g).
 
-For un-preprocessed data, download them from the following links:
+Download them from the following links:
 
 - [Digg dataset](https://www.isi.edu/~lerman/downloads/digg2009.html)
 - [Twitter dataset](https://snap.stanford.edu/data/higgs-twitter.html)
