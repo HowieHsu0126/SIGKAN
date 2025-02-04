@@ -83,7 +83,7 @@ SIGKAN has been evaluated using several key metrics to measure prediction accura
 SIGKAN significantly outperforms existing baseline methods on the OAG, Twitter, Weibo, and Digg datasets in predicting social influence. The results demonstrate a substantial improvement in both accuracy and generalization capabilities across different social network datasets.
 
 ## Acknowledgments
-This work is based on sociological theories of social influence and advanced graph neural network methodologies. We acknowledge the works that inspired this model, including **DeepInf** ([GitHub Repository](https://github.com/xptree/DeepInf)) and **Efficient KAN** ([GitHub Repository](https://github.com/Blealtan/efficient-kan)).
+This work is based on sociological theories of social influence and graph neural networks. We acknowledge the works that inspired this model, including **GraphKAN** ([GitHub Repository](https://github.com/WillHua127/GraphKAN-Graph-Kolmogorov-Arnold-Networks)) and **Efficient KAN** ([GitHub Repository](https://github.com/Blealtan/efficient-kan)).
 
 ## License
 This project is licensed under the MIT License.
